@@ -2,10 +2,12 @@ const axios = require("axios");
 
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const VINTED_COOKIE = process.env.VINTED_COOKIE;
-const SEARCH_TEXT = process.env.SEARCH_TEXT || "écran iphone fissuré";
+const SEARCH_TEXT = process.env.SEARCH_TEXT || "iphone ecran fissure";
 const MAX_PRICE = Number(process.env.MAX_PRICE || 300);
 
 const CHECK_INTERVAL = 10 * 60 * 1000; // 10 minutes
+const DISCORD_DELAY = 3000; // 3 secondes entre chaque message Discord
+
 const seenItems = new Set();
 
 const BLACKLIST_WORDS = [
@@ -19,18 +21,53 @@ const BLACKLIST_WORDS = [
   "pièces",
   "pieces",
   "ne s'allume pas",
+  "ne s allume pas",
   "compte",
   "verrouillé",
   "verrouiller",
   "simlocké",
   "simlocke",
   "bloqué opérateur",
-  "bloque operateur"
+  "bloque operateur",
+  "orange uniquement",
+  "sfr uniquement",
+  "bouygues uniquement",
+  "free uniquement",
+  "compteur",
+  "montre",
+  "xbox",
+  "trottinette",
+  "ipad",
+  "oppo",
+  "samsung",
+  "blackview",
+  "écran pc",
+  "ecran pc",
+  "tablette"
 ];
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function isBlacklisted(title) {
   const lowerTitle = title.toLowerCase();
   return BLACKLIST_WORDS.some((word) => lowerTitle.includes(word));
+}
+
+function isRelevant(title) {
+  const lowerTitle = title.toLowerCase();
+
+  const hasIphone = lowerTitle.includes("iphone");
+  const hasScreenProblem =
+    lowerTitle.includes("écran") ||
+    lowerTitle.includes("ecran") ||
+    lowerTitle.includes("fissuré") ||
+    lowerTitle.includes("fissure") ||
+    lowerTitle.includes("cassé") ||
+    lowerTitle.includes("casse");
+
+  return hasIphone && hasScreenProblem;
 }
 
 function getPrice(item) {
@@ -86,7 +123,8 @@ async function checkVinted() {
         per_page: 20
       },
       headers: {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
         "Accept": "application/json",
         "Cookie": VINTED_COOKIE || ""
       }
@@ -113,6 +151,11 @@ async function checkVinted() {
         continue;
       }
 
+      if (!isRelevant(title)) {
+        console.log("⛔ Annonce ignorée hors sujet :", title);
+        continue;
+      }
+
       if (price && price > MAX_PRICE) {
         console.log("💰 Annonce trop chère :", title, price + "€");
         continue;
@@ -120,12 +163,20 @@ async function checkVinted() {
 
       console.log("✅ Annonce envoyée :", title);
       await sendToDiscord(item, price);
+
+      await sleep(DISCORD_DELAY);
     }
   } catch (error) {
-    console.error("❌ Erreur Vinted :", error.response?.status || error.message);
+    const status = error.response?.status;
 
-    if (error.response?.status === 401 || error.response?.status === 403) {
+    console.error("❌ Erreur Vinted :", status || error.message);
+
+    if (status === 401 || status === 403) {
       console.log("⚠️ Cookie Vinted invalide ou expiré.");
+    }
+
+    if (status === 429) {
+      console.log("⚠️ Trop de requêtes. Vinted bloque temporairement. Attends quelques minutes.");
     }
   }
 }
