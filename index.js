@@ -1,24 +1,19 @@
-const Parser = require("rss-parser");
 const axios = require("axios");
 
-const parser = new Parser();
-
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-const SEARCH_URL = process.env.SEARCH_URL;
-const MAX_PRICE = Number(process.env.MAX_PRICE || 200);
+const VINTED_COOKIE = process.env.VINTED_COOKIE;
+const SEARCH_TEXT = process.env.SEARCH_TEXT || "écran iphone fissuré";
+const MAX_PRICE = Number(process.env.MAX_PRICE || 300);
 
 const CHECK_INTERVAL = 60 * 1000; // 60 secondes
-
 const seenItems = new Set();
 
 const BLACKLIST_WORDS = [
   "icloud",
   "bloqué",
-  "bloquer",
+  "bloque",
   "blacklist",
   "hs",
-  "cassé",
-  "casser",
   "pour pièce",
   "pour pieces",
   "pièces",
@@ -26,23 +21,32 @@ const BLACKLIST_WORDS = [
   "ne s'allume pas",
   "compte",
   "verrouillé",
-  "verrouiller"
+  "verrouiller",
+  "simlocké",
+  "simlocke",
+  "bloqué opérateur",
+  "bloque operateur"
 ];
-
-function extractPrice(text) {
-  if (!text) return null;
-
-  const match = text.match(/(\d+)[\s,.]*(€|eur|euro)/i);
-
-  if (!match) return null;
-
-  return Number(match[1]);
-}
 
 function isBlacklisted(title) {
   const lowerTitle = title.toLowerCase();
-
   return BLACKLIST_WORDS.some((word) => lowerTitle.includes(word));
+}
+
+function getPrice(item) {
+  if (item.price?.amount) {
+    return Number(item.price.amount);
+  }
+
+  if (item.price_numeric) {
+    return Number(item.price_numeric);
+  }
+
+  if (item.price) {
+    return Number(item.price);
+  }
+
+  return null;
 }
 
 async function sendToDiscord(item, price) {
@@ -50,33 +54,50 @@ async function sendToDiscord(item, price) {
     content: `📱 **Nouvelle annonce Vinted détectée**
 
 **Titre :** ${item.title}
-**Prix estimé :** ${price ? price + "€" : "Prix non trouvé"}
-**Lien :** ${item.link}`
+**Prix :** ${price ? price + "€" : "Prix non trouvé"}
+**Lien :** ${item.url}`
   };
 
   await axios.post(DISCORD_WEBHOOK_URL, message);
 }
 
-async function checkVintedRSS() {
+async function checkVinted() {
   try {
-    console.log("🔍 Vérification du flux RSS...");
+    console.log("🔍 Recherche Vinted en cours...");
 
     if (!DISCORD_WEBHOOK_URL) {
       console.log("❌ DISCORD_WEBHOOK_URL manquant");
       return;
     }
 
-    if (!SEARCH_URL) {
-      console.log("❌ SEARCH_URL manquant");
-      return;
+    if (!VINTED_COOKIE) {
+      console.log("⚠️ VINTED_COOKIE manquant");
+      console.log("Le bot peut être bloqué par Vinted sans cookie.");
     }
 
-    const feed = await parser.parseURL(SEARCH_URL);
+    const url = "https://www.vinted.fr/api/v2/catalog/items";
 
-    console.log(`✅ ${feed.items.length} annonces trouvées`);
+    const response = await axios.get(url, {
+      params: {
+        search_text: SEARCH_TEXT,
+        price_to: MAX_PRICE,
+        currency: "EUR",
+        order: "newest_first",
+        per_page: 20
+      },
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+        "Cookie": VINTED_COOKIE || ""
+      }
+    });
 
-    for (const item of feed.items) {
-      const id = item.guid || item.link;
+    const items = response.data.items || [];
+
+    console.log(`✅ ${items.length} annonces trouvées`);
+
+    for (const item of items) {
+      const id = item.id;
 
       if (seenItems.has(id)) {
         continue;
@@ -85,9 +106,7 @@ async function checkVintedRSS() {
       seenItems.add(id);
 
       const title = item.title || "";
-      const content = item.contentSnippet || item.content || "";
-
-      const price = extractPrice(title) || extractPrice(content);
+      const price = getPrice(item);
 
       if (isBlacklisted(title)) {
         console.log("⛔ Annonce ignorée blacklist :", title);
@@ -103,13 +122,17 @@ async function checkVintedRSS() {
       await sendToDiscord(item, price);
     }
   } catch (error) {
-    console.error("❌ Erreur RSS :", error.message);
+    console.error("❌ Erreur Vinted :", error.response?.status || error.message);
+
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      console.log("⚠️ Cookie Vinted invalide ou expiré.");
+    }
   }
 }
 
-console.log("🚀 Bot Vinted RSS démarré");
+console.log("🚀 Bot Vinted démarré");
+console.log("Recherche :", SEARCH_TEXT);
 console.log("Prix max :", MAX_PRICE + "€");
 
-checkVintedRSS();
-
-setInterval(checkVintedRSS, CHECK_INTERVAL);
+checkVinted();
+setInterval(checkVinted, CHECK_INTERVAL);
