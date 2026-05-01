@@ -5,13 +5,14 @@ const VINTED_COOKIE = process.env.VINTED_COOKIE;
 const SEARCH_TEXT = process.env.SEARCH_TEXT || "iphone ecran fissure";
 const MAX_PRICE = Number(process.env.MAX_PRICE || 300);
 
-const CHECK_INTERVAL = 10 * 60 * 1000; // 10 minutes
+const CHECK_INTERVAL = 15 * 60 * 1000; // 15 minutes
 const DISCORD_DELAY = 3000; // 3 secondes entre chaque message Discord
 
 const seenItems = new Set();
 
 const BLACKLIST_WORDS = [
   "icloud",
+  "i cloud",
   "bloqué",
   "bloque",
   "blacklist",
@@ -58,16 +59,10 @@ function isBlacklisted(title) {
 function isRelevant(title) {
   const lowerTitle = title.toLowerCase();
 
-  const hasIphone = lowerTitle.includes("iphone");
-  const hasScreenProblem =
-    lowerTitle.includes("écran") ||
-    lowerTitle.includes("ecran") ||
-    lowerTitle.includes("fissuré") ||
-    lowerTitle.includes("fissure") ||
-    lowerTitle.includes("cassé") ||
-    lowerTitle.includes("casse");
-
-  return hasIphone && hasScreenProblem;
+  // On garde tous les iPhone.
+  // Vinted filtre déjà avec SEARCH_TEXT.
+  // Comme ça, si le titre dit juste "iPhone 13", le bot ne le bloque pas.
+  return lowerTitle.includes("iphone");
 }
 
 function getPrice(item) {
@@ -115,17 +110,21 @@ async function checkVinted() {
     const url = "https://www.vinted.fr/api/v2/catalog/items";
 
     const response = await axios.get(url, {
+      timeout: 15000,
       params: {
         search_text: SEARCH_TEXT,
         price_to: MAX_PRICE,
         currency: "EUR",
         order: "newest_first",
-        per_page: 20
+        per_page: 10
       },
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
         "Accept": "application/json",
+        "Accept-Language": "fr-FR,fr;q=0.9",
+        "Referer": "https://www.vinted.fr/catalog",
+        "Origin": "https://www.vinted.fr",
         "Cookie": VINTED_COOKIE || ""
       }
     });
