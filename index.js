@@ -1,68 +1,104 @@
 const axios = require("axios");
 
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const VINTED_COOKIE = process.env.VINTED_COOKIE;
-const SEARCH_TEXT = process.env.SEARCH_TEXT || "iphone ecran fissure";
-const MAX_PRICE = Number(process.env.MAX_PRICE || 300);
+
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+const DISCORD_WEBHOOK_IPHONE = process.env.DISCORD_WEBHOOK_IPHONE || DISCORD_WEBHOOK_URL;
+const DISCORD_WEBHOOK_APPLEWATCH = process.env.DISCORD_WEBHOOK_APPLEWATCH || DISCORD_WEBHOOK_URL;
 
 const CHECK_INTERVAL = 15 * 60 * 1000; // 15 minutes
 const DISCORD_DELAY = 3000; // 3 secondes entre chaque message Discord
 
-const seenItems = new Set();
-
-const BLACKLIST_WORDS = [
-  "icloud",
-  "i cloud",
-  "bloqué",
-  "bloque",
-  "blacklist",
-  "hs",
-  "pour pièce",
-  "pour pieces",
-  "pièces",
-  "pieces",
-  "ne s'allume pas",
-  "ne s allume pas",
-  "compte",
-  "verrouillé",
-  "verrouiller",
-  "simlocké",
-  "simlocke",
-  "bloqué opérateur",
-  "bloque operateur",
-  "orange uniquement",
-  "sfr uniquement",
-  "bouygues uniquement",
-  "free uniquement",
-  "compteur",
-  "montre",
-  "xbox",
-  "trottinette",
-  "ipad",
-  "oppo",
-  "samsung",
-  "blackview",
-  "écran pc",
-  "ecran pc",
-  "tablette"
+const SEARCHES = [
+  {
+    name: "iPhone",
+    searchText: process.env.SEARCH_TEXT_IPHONE || "iphone ecran fissure",
+    maxPrice: Number(process.env.MAX_PRICE_IPHONE || 300),
+    webhook: DISCORD_WEBHOOK_IPHONE,
+    requiredWords: ["iphone"],
+    blacklistWords: [
+      "icloud",
+      "i cloud",
+      "bloqué",
+      "bloque",
+      "blacklist",
+      "hs",
+      "pour pièce",
+      "pour pieces",
+      "pièces",
+      "pieces",
+      "ne s'allume pas",
+      "ne s allume pas",
+      "compte",
+      "verrouillé",
+      "verrouiller",
+      "simlocké",
+      "simlocke",
+      "bloqué opérateur",
+      "bloque operateur",
+      "orange uniquement",
+      "sfr uniquement",
+      "bouygues uniquement",
+      "free uniquement",
+      "compteur",
+      "montre",
+      "xbox",
+      "trottinette",
+      "ipad",
+      "oppo",
+      "samsung",
+      "blackview",
+      "écran pc",
+      "ecran pc",
+      "tablette"
+    ]
+  },
+  {
+    name: "Apple Watch",
+    searchText: process.env.SEARCH_TEXT_APPLEWATCH || "apple watch ecran casse",
+    maxPrice: Number(process.env.MAX_PRICE_APPLEWATCH || 120),
+    webhook: DISCORD_WEBHOOK_APPLEWATCH,
+    requiredWords: ["apple watch"],
+    blacklistWords: [
+      "icloud",
+      "i cloud",
+      "bloqué",
+      "bloque",
+      "bloquée",
+      "bloquee",
+      "verrouillé",
+      "verrouille",
+      "verrouillée",
+      "verrouillee",
+      "compte",
+      "activation lock",
+      "localiser",
+      "hs",
+      "ne s'allume pas",
+      "ne s allume pas",
+      "pour pièce",
+      "pour pieces",
+      "pièces",
+      "pieces",
+      "boitier seul",
+      "boîtier seul",
+      "bracelet",
+      "chargeur",
+      "protection",
+      "coque",
+      "accessoire",
+      "samsung",
+      "garmin",
+      "xiaomi",
+      "huawei"
+    ]
+  }
 ];
+
+const seenItems = new Set();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isBlacklisted(title) {
-  const lowerTitle = title.toLowerCase();
-  return BLACKLIST_WORDS.some((word) => lowerTitle.includes(word));
-}
-
-function isRelevant(title) {
-  const lowerTitle = title.toLowerCase();
-
-  // On garde tous les iPhone.
-  // Vinted filtre déjà avec SEARCH_TEXT.
-  // Comme ça, si le titre dit juste "iPhone 13", le bot ne le bloque pas.
-  return lowerTitle.includes("iphone");
 }
 
 function getPrice(item) {
@@ -81,26 +117,39 @@ function getPrice(item) {
   return null;
 }
 
-async function sendToDiscord(item, price) {
+function isBlacklisted(title, blacklistWords) {
+  const lowerTitle = title.toLowerCase();
+  return blacklistWords.some((word) => lowerTitle.includes(word));
+}
+
+function isRelevant(title, requiredWords) {
+  const lowerTitle = title.toLowerCase();
+
+  return requiredWords.some((word) => lowerTitle.includes(word));
+}
+
+async function sendToDiscord(search, item, price) {
+  if (!search.webhook) {
+    console.log(`❌ Webhook manquant pour ${search.name}`);
+    return;
+  }
+
   const message = {
-    content: `📱 **Nouvelle annonce Vinted détectée**
+    content: `🔔 **Nouvelle annonce ${search.name} détectée**
 
 **Titre :** ${item.title}
 **Prix :** ${price ? price + "€" : "Prix non trouvé"}
 **Lien :** ${item.url}`
   };
 
-  await axios.post(DISCORD_WEBHOOK_URL, message);
+  await axios.post(search.webhook, message);
 }
 
-async function checkVinted() {
+async function checkSearch(search) {
   try {
-    console.log("🔍 Recherche Vinted en cours...");
-
-    if (!DISCORD_WEBHOOK_URL) {
-      console.log("❌ DISCORD_WEBHOOK_URL manquant");
-      return;
-    }
+    console.log(`🔍 Recherche Vinted en cours : ${search.name}`);
+    console.log(`Recherche : ${search.searchText}`);
+    console.log(`Prix max : ${search.maxPrice}€`);
 
     if (!VINTED_COOKIE) {
       console.log("⚠️ VINTED_COOKIE manquant");
@@ -112,8 +161,8 @@ async function checkVinted() {
     const response = await axios.get(url, {
       timeout: 15000,
       params: {
-        search_text: SEARCH_TEXT,
-        price_to: MAX_PRICE,
+        search_text: search.searchText,
+        price_to: search.maxPrice,
         currency: "EUR",
         order: "newest_first",
         per_page: 10
@@ -131,10 +180,10 @@ async function checkVinted() {
 
     const items = response.data.items || [];
 
-    console.log(`✅ ${items.length} annonces trouvées`);
+    console.log(`✅ ${items.length} annonces trouvées pour ${search.name}`);
 
     for (const item of items) {
-      const id = item.id;
+      const id = `${search.name}-${item.id}`;
 
       if (seenItems.has(id)) {
         continue;
@@ -145,30 +194,30 @@ async function checkVinted() {
       const title = item.title || "";
       const price = getPrice(item);
 
-      if (isBlacklisted(title)) {
+      if (isBlacklisted(title, search.blacklistWords)) {
         console.log("⛔ Annonce ignorée blacklist :", title);
         continue;
       }
 
-      if (!isRelevant(title)) {
+      if (!isRelevant(title, search.requiredWords)) {
         console.log("⛔ Annonce ignorée hors sujet :", title);
         continue;
       }
 
-      if (price && price > MAX_PRICE) {
+      if (price && price > search.maxPrice) {
         console.log("💰 Annonce trop chère :", title, price + "€");
         continue;
       }
 
-      console.log("✅ Annonce envoyée :", title);
-      await sendToDiscord(item, price);
+      console.log(`✅ Annonce envoyée ${search.name} :`, title);
+      await sendToDiscord(search, item, price);
 
       await sleep(DISCORD_DELAY);
     }
   } catch (error) {
     const status = error.response?.status;
 
-    console.error("❌ Erreur Vinted :", status || error.message);
+    console.error(`❌ Erreur Vinted ${search.name} :`, status || error.message);
 
     if (status === 401 || status === 403) {
       console.log("⚠️ Cookie Vinted invalide ou expiré.");
@@ -180,9 +229,20 @@ async function checkVinted() {
   }
 }
 
-console.log("🚀 Bot Vinted démarré");
-console.log("Recherche :", SEARCH_TEXT);
-console.log("Prix max :", MAX_PRICE + "€");
+async function checkAllSearches() {
+  console.log("🚀 Lancement des recherches Vinted");
 
-checkVinted();
-setInterval(checkVinted, CHECK_INTERVAL);
+  for (const search of SEARCHES) {
+    await checkSearch(search);
+
+    // Petite pause entre chaque recherche pour éviter de spammer Vinted
+    await sleep(5000);
+  }
+
+  console.log("✅ Toutes les recherches sont terminées");
+}
+
+console.log("🚀 Bot Vinted multi-recherches démarré");
+
+checkAllSearches();
+setInterval(checkAllSearches, CHECK_INTERVAL);
