@@ -5,7 +5,7 @@ const VINTED_COOKIE = process.env.VINTED_COOKIE;
 const SEARCH_TEXT = process.env.SEARCH_TEXT || "écran iphone fissuré";
 const MAX_PRICE = Number(process.env.MAX_PRICE || 300);
 
-const CHECK_INTERVAL = 5 * 60 * 1000; // 60 secondes
+const CHECK_INTERVAL = 10 * 60 * 1000; // 10 minutes
 const seenItems = new Set();
 
 const BLACKLIST_WORDS = [
